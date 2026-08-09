@@ -32,7 +32,13 @@ def run_web():
 Thread(target=run_web).start()
 # --- Config ---
 TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+ADMIN_IDS = {
+    int(x.strip())
+    for x in os.getenv("ADMIN_IDS", "").split(",")
+    if x.strip()
+}
+
+ADMIN_ID = next(iter(ADMIN_IDS))
 PAGE_SIZE = 10  # links per page
 REDIS_URL = os.getenv("REDIS_URL")
 redis = Redis.from_url(REDIS_URL, decode_responses=True)
@@ -44,7 +50,7 @@ logging.basicConfig(level=logging.INFO)
 def admin_only(func):
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if update.effective_user.id != ADMIN_ID:
+        if update.effective_user.id not in ADMIN_IDS:
             await update.message.reply_text("❌ You are not authorized to use this bot.")
             return
         return await func(update, context)
