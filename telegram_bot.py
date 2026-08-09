@@ -10,6 +10,8 @@ import uuid
 import asyncio
 import logging
 import re
+from flask import Flask
+from threading import Thread
 from datetime import datetime, timedelta
 from functools import wraps
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -18,7 +20,16 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes
 )
 from redis.asyncio import Redis
+web_app = Flask(__name__)
 
+@web_app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_web():
+    web_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+Thread(target=run_web).start()
 # --- Config ---
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
