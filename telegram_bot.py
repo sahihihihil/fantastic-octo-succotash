@@ -248,33 +248,6 @@ async def setjointitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @admin_only
-async def get_image_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📸 Now send me the image as a photo."
-    )
-
-
-
-
-
-@admin_only
-async def capture_image_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.photo:
-        return
-
-    file_id = update.message.photo[-1].file_id
-
-    await update.message.reply_text(
-        f"✅ Image File ID:\n\n`{file_id}`",
-        parse_mode="Markdown"
-    )
-
-
-
-
-
-
-@admin_only
 async def resetjointitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await redis.set("join_text", "📢 Please join all required channels:")
     await update.message.reply_text("🔄 Join prompt reset to default.")
@@ -980,8 +953,6 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("allcommands", allcommands))
     app.add_handler(CommandHandler("start", start))
 
-    app.add_handler(CommandHandler("getimageid", get_image_id))
-app.add_handler(MessageHandler(filters.PHOTO, capture_image_id))
 
     # Callback and message handlers
     app.add_handler(CallbackQueryHandler(fullaccess_callback, pattern=r"^fullaccess$"))
