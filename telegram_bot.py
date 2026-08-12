@@ -18,6 +18,8 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes
 )
 from redis.asyncio import Redis
+from flask import Flask
+from threading import Thread
 
 # --- Config ---
 TOKEN = os.getenv("BOT_TOKEN")
@@ -44,6 +46,17 @@ redis = Redis.from_url(REDIS_URL, decode_responses=True)
 
 # --- Logging ---
 logging.basicConfig(level=logging.INFO)
+
+# --- Render health check ---
+web_app = Flask(__name__)
+
+@web_app.route("/")
+def health_check():
+    return "Bot is running!", 200
+
+def run_web():
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # --- Helpers ---
 def admin_only(func):
@@ -914,6 +927,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # --- Main ---
 if __name__ == '__main__':
+    Thread(target=run_web, daemon=True).start()
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Admin command handlers
