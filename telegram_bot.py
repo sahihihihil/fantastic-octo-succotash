@@ -10,8 +10,6 @@ import uuid
 import asyncio
 import logging
 import re
-from flask import Flask
-from threading import Thread
 from datetime import datetime, timedelta
 from functools import wraps
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
@@ -20,25 +18,26 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes
 )
 from redis.asyncio import Redis
-web_app = Flask(__name__)
 
-@web_app.route("/")
-def home():
-    return "Bot is running!"
-
-def run_web():
-    web_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
-
-Thread(target=run_web).start()
 # --- Config ---
 TOKEN = os.getenv("BOT_TOKEN")
+
 ADMIN_IDS = {
     int(x.strip())
     for x in os.getenv("ADMIN_IDS", "").split(",")
     if x.strip()
 }
 
+if not ADMIN_IDS:
+    raise ValueError("ADMIN_IDS is not configured.")
+
+# Primary admin remains the first ID for existing bot behavior that
+# relies on one primary source chat.
 ADMIN_ID = next(iter(ADMIN_IDS))
+
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+CHANNEL_IMAGE_FILE_ID = os.getenv("CHANNEL_IMAGE_FILE_ID")
+
 PAGE_SIZE = 10  # links per page
 REDIS_URL = os.getenv("REDIS_URL")
 redis = Redis.from_url(REDIS_URL, decode_responses=True)
@@ -188,6 +187,23 @@ async def get_data(key, default=None):
 async def set_data(key, val):
     await redis.set(key, json.dumps(val))
 
+
+async def post_link_to_channel(context: ContextTypes.DEFAULT_TYPE, link: str):
+    """Post the fixed channel image with the generated link button."""
+    if not CHANNEL_ID or not CHANNEL_IMAGE_FILE_ID:
+        logging.warning("CHANNEL_ID or CHANNEL_IMAGE_FILE_ID is not configured; skipping channel post.")
+        return
+
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open Video", url=link)]])
+
+    await context.bot.send_photo(
+        chat_id=CHANNEL_ID,
+        photo=CHANNEL_IMAGE_FILE_ID,
+        caption="🎬 New Content\n\nClick the button below to access.",
+        reply_markup=keyboard,
+    )
+
+
 async def is_user_joined(user_id, context):
     channels = await get_data("required_channels", [])
     for ch in channels:
@@ -236,32 +252,39 @@ async def resetjointitle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await redis.delete(f"batch:{ADMIN_ID}")
-    await redis.set(f"batch_active:{ADMIN_ID}", 1)
+    admin_id = update.effective_user.id
+    await redis.delete(f"batch:{admin_id}")
+    await redis.set(f"batch_active:{admin_id}", 1)
     await update.message.reply_text("📦 Batch mode ON. Send your messages.")
 
 @admin_only
 async def batchoff(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await redis.delete(f"batch:{ADMIN_ID}")
-    await redis.delete(f"batch_active:{ADMIN_ID}")
+    admin_id = update.effective_user.id
+    await redis.delete(f"batch:{admin_id}")
+    await redis.delete(f"batch_active:{admin_id}")
     await update.message.reply_text("❌ Batch mode cancelled.")
 
 @admin_only
 async def generatebatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    session = await redis.lrange(f"batch:{ADMIN_ID}", 0, -1)
+    admin_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    session = await redis.lrange(f"batch:{admin_id}", 0, -1)
     if not session:
         await update.message.reply_text("❌ No inputs in batch.")
         return
-    token = generate_token()
-    await set_data(f"link:{token}", {"type": "batch", "messages": session})
-    await redis.delete(f"batch:{ADMIN_ID}")
-    await redis.delete(f"batch_active:{ADMIN_ID}")
 
-    # Analytics: batch link created
+    token = generate_token()
+    await set_data(f"link:{token}", {"type": "batch", "chat_id": chat_id, "messages": session})
+    await redis.delete(f"batch:{admin_id}")
+    await redis.delete(f"batch_active:{admin_id}")
+
     await incr("metrics:links:batch:total")
     await sadd(f"metrics:links:batch:{_daystamp()}", token)
 
-    await update.message.reply_text(f"✅ Batch link generated:\nhttps://t.me/{context.bot.username}?start={token}")
+    link = f"https://t.me/{context.bot.username}?start={token}"
+    await update.message.reply_text(f"✅ Batch link generated:\n{link}")
+    await post_link_to_channel(context, link)
 
 @admin_only
 async def setchannels(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -693,11 +716,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wait_msg = await context.bot.send_message(update.effective_chat.id, "⏳ Please wait …")
 
     if record["type"] == "single":
-        msg = await context.bot.copy_message(update.effective_chat.id, ADMIN_ID, record["message_id"])
+        msg = await context.bot.copy_message(update.effective_chat.id, record["chat_id"], record["message_id"])
         sent_ids.append(msg.message_id)
     else:
         for msg_id in record["messages"]:
-            msg = await context.bot.copy_message(update.effective_chat.id, ADMIN_ID, msg_id)
+            msg = await context.bot.copy_message(update.effective_chat.id, record["chat_id"], msg_id)
             sent_ids.append(msg.message_id)
 
     await record_file_delivery(update.effective_user.id)
@@ -773,11 +796,11 @@ async def tryagain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     wait_msg = await context.bot.send_message(chat_id, "⏳ Please wait …")
 
     if record["type"] == "single":
-        msg = await context.bot.copy_message(chat_id, ADMIN_ID, record["message_id"])
+        msg = await context.bot.copy_message(chat_id, record["chat_id"], record["message_id"])
         sent_ids.append(msg.message_id)
     else:
         for msg_id in record["messages"]:
-            msg = await context.bot.copy_message(chat_id, ADMIN_ID, msg_id)
+            msg = await context.bot.copy_message(chat_id, record["chat_id"], msg_id)
             sent_ids.append(msg.message_id)
 
     await record_file_delivery(user_id)
@@ -857,18 +880,25 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Button updated to: [{text}]({url})", parse_mode="Markdown")
         return
 
-    if await redis.exists(f"batch_active:{ADMIN_ID}"):
-        await redis.rpush(f"batch:{ADMIN_ID}", update.message.message_id)
+    admin_id = update.effective_user.id
+
+    if await redis.exists(f"batch_active:{admin_id}"):
+        await redis.rpush(f"batch:{admin_id}", update.message.message_id)
         return
 
     token = generate_token()
-    await set_data(f"link:{token}", {"type": "single", "message_id": update.message.message_id})
+    await set_data(f"link:{token}", {
+        "type": "single",
+        "chat_id": update.effective_chat.id,
+        "message_id": update.message.message_id
+    })
 
-    # Analytics: single link created
     await incr("metrics:links:single:total")
     await sadd(f"metrics:links:single:{_daystamp()}", token)
 
-    await update.message.reply_text(f"🔗 Link generated:\nhttps://t.me/{context.bot.username}?start={token}")
+    link = f"https://t.me/{context.bot.username}?start={token}"
+    await update.message.reply_text(f"🔗 Link generated:\n{link}")
+    await post_link_to_channel(context, link)
 
 # --- Fallback ---
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
