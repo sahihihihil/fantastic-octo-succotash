@@ -186,7 +186,13 @@ async def record_file_delivery(user_id: int):
     await set_data(f"access:usage:{user_id}", state)
 
 async def send_limit_reached(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = await get_limit_message()
+    cycle_hours = await get_access_cycle_hours()
+
+message = (
+    f"⚠️ You've reached your free access limit.\n\n"
+    f"Your free access will reset in {cycle_hours} hours.\n\n"
+    f"🔓 Get full access to continue without waiting."
+)
 
     channel_url = os.getenv("LIMIT_CHANNEL_URL")
 
