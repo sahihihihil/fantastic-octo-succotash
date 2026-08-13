@@ -187,8 +187,24 @@ async def record_file_delivery(user_id: int):
 
 async def send_limit_reached(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = await get_limit_message()
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔓 Get Full Access", callback_data="fullaccess")]])
-    await update.effective_chat.send_message(message, reply_markup=keyboard)
+
+    channel_url = os.getenv("LIMIT_CHANNEL_URL")
+
+    buttons = [
+        [InlineKeyboardButton("🔓 Get Full Access", callback_data="fullaccess")]
+    ]
+
+    if channel_url:
+        buttons.append(
+            [InlineKeyboardButton("📢Get Dark Content", url=channel_url)]
+        )
+
+    keyboard = InlineKeyboardMarkup(buttons)
+
+    await update.effective_chat.send_message(
+        message,
+        reply_markup=keyboard
+    )
 
 async def send_full_access_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_chat.send_message(await get_full_access_message())
