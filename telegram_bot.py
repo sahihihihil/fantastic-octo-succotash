@@ -86,7 +86,7 @@ def generate_token() -> str:
 # === Access limit / full-access helpers ===
 DEFAULT_ACCESS_LIMIT = 6
 DEFAULT_ACCESS_CYCLE_HOURS = 48
-DEFAULT_LIMIT_MESSAGE = "⚠️ You have reached your free access limit.\n\nGet full access to continue."
+DEFAULT_LIMIT_MESSAGE = "⚠️ You've reached your free access limit.\n\nGet full access to continue."
 DEFAULT_FULL_ACCESS_MESSAGE = "🔓 Please follow the instructions below to get full access."
 
 async def get_access_limit() -> int:
@@ -186,7 +186,13 @@ async def record_file_delivery(user_id: int):
     await set_data(f"access:usage:{user_id}", state)
 
 async def send_limit_reached(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = await get_limit_message()
+    cycle_hours = await get_access_cycle_hours()
+
+message = (
+    f"⚠️ You've reached your free access limit.\n\n"
+    f"Your free access will reset in {cycle_hours} hours.\n\n"
+    f"🔓 Get full access to continue without waiting."
+)
 
     channel_url = os.getenv("LIMIT_CHANNEL_URL")
 
