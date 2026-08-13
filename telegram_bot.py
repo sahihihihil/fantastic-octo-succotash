@@ -196,7 +196,7 @@ async def send_limit_reached(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if channel_url:
         buttons.append(
-            [InlineKeyboardButton("📢Get Dark Content", url=channel_url)]
+            [InlineKeyboardButton("📢 Get Dark Content", url=channel_url)]
         )
 
     keyboard = InlineKeyboardMarkup(buttons)
