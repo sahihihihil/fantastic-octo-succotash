@@ -826,9 +826,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
         )
     else:
-        button_msg = await update.message.reply_text(
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
-        )
+    button_msg = await update.message.reply_text(
+        "\u200b",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+    )
     sent_ids.append(button_msg.message_id)
 
     delay = int(await redis.get("delete_time") or 1800)
