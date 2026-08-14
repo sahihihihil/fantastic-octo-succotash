@@ -216,9 +216,8 @@ async def send_full_access_message(update: Update, context: ContextTypes.DEFAULT
     # Send the saved text first
     await update.effective_chat.send_message(await get_full_access_message())
 
-    # Send the saved image separately
+    # Then send the saved image separately
     image_file_id = await redis.get("access:full_access_image")
-
     if image_file_id:
         await update.effective_chat.send_photo(photo=image_file_id)
 
@@ -543,9 +542,8 @@ async def setlimitmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def setaccessmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["awaiting_full_access_message"] = True
     context.user_data.pop("awaiting_full_access_image", None)
-
     await update.message.reply_text(
-        "📝 Send the text to show after the user taps 🔓 Get Full Access."
+        "📝 Send the text to show after the user taps Get Full Access."
     )
 
 @admin_only
@@ -894,9 +892,9 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Limit-reached message updated.")
         return
 
-    if context.user_data.get("awaiting _full_access_message"):
+    if context.user_data.get("awaiting_full_access_message"):
         if not update.message.text:
-            await update.message.reply._text("Please send the text first")
+            await update.message.reply_text("❌ Please send the text first.")
             return
 
         await redis.set("access:full_access_message", update.message.text)
@@ -915,7 +913,6 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         image_file_id = update.message.photo[-1].file_id
-
         await redis.set("access:full_access_image", image_file_id)
 
         context.user_data.pop("awaiting_full_access_image", None)
