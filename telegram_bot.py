@@ -213,7 +213,14 @@ async def send_limit_reached(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def send_full_access_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Send the saved text first
     await update.effective_chat.send_message(await get_full_access_message())
+
+    # Send the saved image separately
+    image_file_id = await redis.get("access:full_access_image")
+
+    if image_file_id:
+        await update.effective_chat.send_photo(photo=image_file_id)
 
 async def get_data(key, default=None):
     val = await redis.get(key)
@@ -535,7 +542,11 @@ async def setlimitmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @admin_only
 async def setaccessmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["awaiting_full_access_message"] = True
-    await update.message.reply_text("📝 Send the message to show after the user taps Get Full Access.")
+    context.user_data.pop("awaiting_full_access_image", None)
+
+    await update.message.reply_text(
+        "📝 Send the text to show after the user taps 🔓 Get Full Access."
+    )
 
 @admin_only
 async def addaccess(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -884,10 +895,36 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get("awaiting_full_access_message"):
-        await redis.set("access:full_access_message", update.message.text)
-        context.user_data.pop("awaiting_full_access_message", None)
-        await update.message.reply_text("✅ Full-access message updated.")
+    if not update.message.text:
+        await update.message.reply_text("❌ Please send the text first.")
         return
+
+    await redis.set("access:full_access_message", update.message.text)
+    context.user_data.pop("awaiting_full_access_message", None)
+    context.user_data["awaiting_full_access_image"] = True
+
+    await update.message.reply_text(
+        "✅ Text saved.\n\n"
+        "🖼️ Now send the image that should appear below the text."
+    )
+    return
+
+
+if context.user_data.get("awaiting_full_access_image"):
+    if not update.message.photo:
+        await update.message.reply_text("❌ Please send an image/photo.")
+        return
+
+    image_file_id = update.message.photo[-1].file_id
+
+    await redis.set("access:full_access_image", image_file_id)
+
+    context.user_data.pop("awaiting_full_access_image", None)
+
+    await update.message.reply_text(
+        "✅ Full-access text and image updated successfully."
+    )
+    return
 
     if context.user_data.get("awaiting_channels"):
         usernames = update.message.text.splitlines()
