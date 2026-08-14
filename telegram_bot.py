@@ -816,14 +816,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         promo_msg = await update.message.reply_text(promo)
         sent_ids.append(promo_msg.message_id)
 
-    caption = await redis.get("button_caption") or "🔘 Tap below to continue"
+    caption = await redis.get("button_caption")
     btext = await redis.get("button_text") or "Open"
     burl = await redis.get("button_url") or "https://example.com"
 
-    button_msg = await update.message.reply_text(
-        caption,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
-    )
+    if caption:
+        button_msg = await update.message.reply_text(
+            caption,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+        )
+    else:
+        button_msg = await update.message.reply_text(
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+        )
     sent_ids.append(button_msg.message_id)
 
     delay = int(await redis.get("delete_time") or 1800)
@@ -896,15 +901,21 @@ async def tryagain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         promo_note = await context.bot.send_message(chat_id, promo)
         sent_ids.append(promo_note.message_id)
 
-    caption = await redis.get("button_caption") or "🔘 Tap below to continue"
+    caption = await redis.get("button_caption")
     btext = await redis.get("button_text") or "Open"
     burl = await redis.get("button_url") or "https://example.com"
 
-    bmsg = await context.bot.send_message(
-        chat_id,
-        caption,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
-    )
+    if caption:
+        bmsg = await context.bot.send_message(
+            chat_id,
+            caption,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+        )
+    else:
+        bmsg = await context.bot.send_message(
+            chat_id,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+        )
     sent_ids.append(bmsg.message_id)
 
     delay = int(await redis.get("delete_time") or 1800)
