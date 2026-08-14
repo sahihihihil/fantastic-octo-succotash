@@ -148,21 +148,16 @@ async def has_full_access(user_id: int) -> bool:
     value = await redis.get(f"access:full:{user_id}")
     if not value:
         return False
-
-    # Lifetime access
     if value == "lifetime":
         return True
-
     try:
         expires_at = int(value)
     except (TypeError, ValueError):
         await redis.delete(f"access:full:{user_id}")
         return False
-
     if expires_at <= int(datetime.utcnow().timestamp()):
         await redis.delete(f"access:full:{user_id}")
         return False
-
     return True
 
 async def get_usage_state(user_id: int):
@@ -556,28 +551,30 @@ async def setaccessmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @admin_only
 async def addaccess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reference = context.args[0] if context.args else None
-    duration_arg = context.args[1] if len(context.args) > 1 else None
-
+    duration_arg = context.args[1].lower() if len(context.args) > 1 else None
     if update.message.reply_to_message and not reference:
         reference = str(update.message.reply_to_message.from_user.id)
-
-    # Allow /addaccess lifetime when replying to a user's message
-    if update.message.reply_to_message and len(context.args) == 1:
-        duration_arg = context.args[0]
-
     if not reference or not duration_arg:
         await update.message.reply_text(
-            "❌ Usage:\n"
-            "/addaccess <@username/profile link/user ID> <hours>\n"
-            "/addaccess <@username/profile link/user ID> lifetime\n\n"
-            "Example:\n"
+            "❌ Usage: /addaccess <@username/profile link/user ID> <hours|lifetime>\n"
+            "Examples:\n"
             "/addaccess @username 24\n"
+            "/addaccess @username 48\n"
             "/addaccess @username lifetime"
         )
         return
 
-    user_id, display = await resolve_user_reference(reference)
+    is_lifetime = duration_arg in {"lifetime", "forever", "permanent"}
+    if not is_lifetime and not duration_arg.isdigit():
+        await update.message.reply_text("❌ Duration must be a number of hours or `lifetime`.", parse_mode="Markdown")
+        return
 
+    hours = int(duration_arg) if not is_lifetime else 0
+    if not is_lifetime and hours < 1:
+        await update.message.reply_text("❌ Access duration must be at least 1 hour.")
+        return
+
+    user_id, display = await resolve_user_reference(reference)
     if not user_id:
         await update.message.reply_text(
             f"❌ I couldn't resolve {display}. The user must have opened this bot at least once, "
@@ -585,55 +582,21 @@ async def addaccess(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Lifetime access
-    if duration_arg.lower() == "lifetime":
+    username = await redis.get(f"access:user:{user_id}:username")
+    shown = f"@{username}" if username else str(user_id)
+
+    if is_lifetime:
         await redis.set(f"access:full:{user_id}", "lifetime")
-
-        username = await redis.get(f"access:user:{user_id}:username")
-        shown = f"@{username}" if username else str(user_id)
-
         await update.message.reply_text(
-            f"✅ Lifetime full access granted.\n\n"
-            f"User: {shown}\n"
-            f"Duration: ♾️ Lifetime"
-        )
-        return
-
-    # Regular hours-based access
-    if not duration_arg.isdigit():
-        await update.message.reply_text(
-            "❌ Duration must be a number of hours or `lifetime`.\n\n"
-            "Examples:\n"
-            "/addaccess @username 24\n"
-            "/addaccess @username 48\n"
-            "/addaccess @username lifetime",
-            parse_mode="Markdown"
-        )
-        return
-
-    hours = int(duration_arg)
-
-    if hours < 1:
-        await update.message.reply_text(
-            "❌ Access duration must be at least 1 hour."
+            f"✅ Lifetime full access granted.\n\nUser: {shown}\nDuration: Lifetime"
         )
         return
 
     expires_at = int(datetime.utcnow().timestamp()) + hours * 3600
     await redis.set(f"access:full:{user_id}", expires_at)
-
-    username = await redis.get(f"access:user:{user_id}:username")
-    shown = f"@{username}" if username else str(user_id)
-
-    expires_text = datetime.utcfromtimestamp(expires_at).strftime(
-        "%Y-%m-%d %H:%M UTC"
-    )
-
+    expires_text = datetime.utcfromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M UTC")
     await update.message.reply_text(
-        f"✅ Full access granted.\n\n"
-        f"User: {shown}\n"
-        f"Duration: {hours} hours\n"
-        f"Expires: {expires_text}"
+        f"✅ Full access granted.\n\nUser: {shown}\nDuration: {hours} hours\nExpires: {expires_text}"
     )
 
 @admin_only
@@ -662,7 +625,7 @@ async def accesslist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = int(datetime.utcnow().timestamp())
     lines = ["🔓 *Full Access Users*", ""]
     active = 0
-        for key in sorted(keys):
+    for key in sorted(keys):
         try:
             user_id = int(key.rsplit(":", 1)[-1])
             access_value = await redis.get(key) or ""
@@ -674,14 +637,19 @@ async def accesslist(update: Update, context: ContextTypes.DEFAULT_TYPE):
             username = await redis.get(f"access:user:{user_id}:username")
             shown = f"@{username}" if username else str(user_id)
             active += 1
-            lines.append(f"{active}. {shown} — ♾️ Lifetime")
+            lines.append(f"{active}. `{shown}` — ♾️ Lifetime")
             continue
 
-try:
-    expires_at = int(access_value)
-except (TypeError, ValueError):
-    await redis.delete(key)
-    continue
+        try:
+            expires_at = int(access_value)
+        except (TypeError, ValueError):
+            await redis.delete(key)
+            continue
+
+        if expires_at <= now:
+            await redis.delete(key)
+            continue
+
         username = await redis.get(f"access:user:{user_id}:username")
         shown = f"@{username}" if username else str(user_id)
         expires_text = datetime.utcfromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M UTC")
@@ -781,7 +749,7 @@ async def allcommands(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/setcycle <hours> - Set free access cycle length",
         "/setlimitmsg - Set limit-reached message",
         "/setaccessmsg - Set Get Full Access response",
-        "/addaccess <user> <hours> - Grant full access",
+        "/addaccess <user> <hours|lifetime> - Grant timed or lifetime full access",
         "/removeaccess <user> - Remove full access",
         "/accesslist - List full-access users",
         "/limitconfig - Show access-limit configuration",
