@@ -811,26 +811,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await record_file_delivery(update.effective_user.id)
     await wait_msg.delete()
 
-    promo = await redis.get("promo_text")
-    if promo and promo.lower() != "null":
-        promo_msg = await update.message.reply_text(promo)
-        sent_ids.append(promo_msg.message_id)
-
     caption = await redis.get("button_caption")
     btext = await redis.get("button_text") or "Open"
     burl = await redis.get("button_url") or "https://example.com"
+    button_markup = InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
 
     if caption:
         button_msg = await update.message.reply_text(
             caption,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+            reply_markup=button_markup
         )
+        sent_ids.append(button_msg.message_id)
     else:
-    button_msg = await update.message.reply_text(
-        "\u200b",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
-    )
-    sent_ids.append(button_msg.message_id)
+        # No custom text: put the button directly below the delivered item.
+        await context.bot.edit_message_reply_markup(
+            chat_id=update.effective_chat.id,
+            message_id=sent_ids[-1],
+            reply_markup=button_markup
+        )
 
     delay = int(await redis.get("delete_time") or 1800)
     note = await update.message.reply_text(f"_⚠️ Important!\n\nAll the messages will be auto-deleted after {format_seconds(delay)}_", parse_mode="Markdown")
@@ -897,27 +895,25 @@ async def tryagain_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await record_file_delivery(user_id)
     await wait_msg.delete()
 
-    promo = await redis.get("promo_text")
-    if promo and promo.lower() != "null":
-        promo_note = await context.bot.send_message(chat_id, promo)
-        sent_ids.append(promo_note.message_id)
-
     caption = await redis.get("button_caption")
     btext = await redis.get("button_text") or "Open"
     burl = await redis.get("button_url") or "https://example.com"
+    button_markup = InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
 
     if caption:
         bmsg = await context.bot.send_message(
             chat_id,
             caption,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+            reply_markup=button_markup
         )
+        sent_ids.append(bmsg.message_id)
     else:
-        bmsg = await context.bot.send_message(
-            chat_id,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+        # No custom text: put the button directly below the delivered item.
+        await context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=sent_ids[-1],
+            reply_markup=button_markup
         )
-    sent_ids.append(bmsg.message_id)
 
     delay = int(await redis.get("delete_time") or 1800)
     del_note = await context.bot.send_message(chat_id, f"_This will be auto-deleted after {format_seconds(delay)}_", parse_mode="Markdown")
