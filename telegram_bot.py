@@ -895,7 +895,7 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if context.user_data.get("awaiting _full_access_message"):
-        if not update.message.text;
+        if not update.message.text:
         await update.message.reply._text("Please send the text first")
         return
 
