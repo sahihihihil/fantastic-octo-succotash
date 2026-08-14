@@ -816,15 +816,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         promo_msg = await update.message.reply_text(promo)
         sent_ids.append(promo_msg.message_id)
 
-    caption = await redis.get("button_caption") or "🔘 Tap below to continue"
-    btext = await redis.get("button_text") or "Open"
-    burl = await redis.get("button_url") or "https://example.com"
+    caption = await redis.get("button_caption")
+btext = await redis.get("button_text") or "Open"
+burl = await redis.get("button_url") or "https://example.com"
 
+if caption:
     button_msg = await update.message.reply_text(
         caption,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(btext, url=burl)]])
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(btext, url=burl)]
+        ])
     )
-    sent_ids.append(button_msg.message_id)
+else:
+    button_msg = await update.message.reply_text(
+        "\u200b",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(btext, url=burl)]
+        ])
+    )
+
+sent_ids.append(button_msg.message_id)
 
     delay = int(await redis.get("delete_time") or 1800)
     note = await update.message.reply_text(f"_⚠️ Important!\n\nAll the messages will be auto-deleted after {format_seconds(delay)}_", parse_mode="Markdown")
