@@ -662,20 +662,20 @@ async def accesslist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = int(datetime.utcnow().timestamp())
     lines = ["🔓 *Full Access Users*", ""]
     active = 0
-    for key in sorted(keys):
+        for key in sorted(keys):
         try:
-    user_id = int(key.rsplit(":", 1)[-1])
-    access_value = await redis.get(key) or ""
-except (TypeError, ValueError):
-    await redis.delete(key)
-    continue
+            user_id = int(key.rsplit(":", 1)[-1])
+            access_value = await redis.get(key) or ""
+        except (TypeError, ValueError):
+            await redis.delete(key)
+            continue
 
-if access_value == "lifetime":
-    username = await redis.get(f"access:user:{user_id}:username")
-    shown = f"@{username}" if username else str(user_id)
-    active += 1
-    lines.append(f"{active}. `{shown}` — ♾️ Lifetime")
-    continue
+        if access_value == "lifetime":
+            username = await redis.get(f"access:user:{user_id}:username")
+            shown = f"@{username}" if username else str(user_id)
+            active += 1
+            lines.append(f"{active}. {shown} — ♾️ Lifetime")
+            continue
 
 try:
     expires_at = int(access_value)
