@@ -896,8 +896,8 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("awaiting _full_access_message"):
         if not update.message.text:
-        await update.message.reply._text("Please send the text first")
-        return
+            await update.message.reply._text("Please send the text first")
+            return
 
         await redis.set("access:full_access_message", update.message.text)
         context.user_data.pop("awaiting_full_access_message", None)
