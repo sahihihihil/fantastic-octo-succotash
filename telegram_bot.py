@@ -12,7 +12,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from functools import wraps
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackQueryHandler, ContextTypes
@@ -38,7 +38,6 @@ if not ADMIN_IDS:
 ADMIN_ID = next(iter(ADMIN_IDS))
 
 CHANNEL_ID = os.getenv("CHANNEL_ID")
-CHANNEL_IMAGE_FILE_ID = os.getenv("CHANNEL_IMAGE_FILE_ID")
 
 PAGE_SIZE = 10  # links per page
 REDIS_URL = os.getenv("REDIS_URL")
@@ -231,20 +230,71 @@ async def set_data(key, val):
     await redis.set(key, json.dumps(val))
 
 
-async def post_link_to_channel(context: ContextTypes.DEFAULT_TYPE, link: str):
-    """Post the fixed channel image with the generated link button."""
-    if not CHANNEL_ID or not CHANNEL_IMAGE_FILE_ID:
-        logging.warning("CHANNEL_ID or CHANNEL_IMAGE_FILE_ID is not configured; skipping channel post.")
+async def post_link_to_channel(context: ContextTypes.DEFAULT_TYPE, link: str, admin_id: int):
+    """Ask the admin for per-link channel images, then publish them with the link."""
+    if not CHANNEL_ID:
+        logging.warning("CHANNEL_ID is not configured; skipping channel post.")
+        return
+
+    context.application.user_data[admin_id]["awaiting_channel_images"] = True
+    context.application.user_data[admin_id]["pending_channel_link"] = link
+    context.application.user_data[admin_id]["pending_channel_images"] = []
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Done — Publish to Channel", callback_data="publish_channel_post")],
+                                     [InlineKeyboardButton("❌ Cancel", callback_data="cancel_channel_post")]])
+    await context.bot.send_message(
+        chat_id=admin_id,
+        text=("🖼️ Send the image or images you want to post in the channel for this link.\n\n"
+              "You can send multiple photos. When finished, press **Done — Publish to Channel**."),
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
+
+
+async def publish_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    admin_id = query.from_user.id
+    if admin_id not in ADMIN_IDS:
+        await query.edit_message_text("❌ You are not authorized to use this bot.")
+        return
+
+    data = context.application.user_data[admin_id]
+    if query.data == "cancel_channel_post":
+        for key in ("awaiting_channel_images", "pending_channel_link", "pending_channel_images"):
+            data.pop(key, None)
+        await query.edit_message_text("❌ Channel post cancelled. The generated link is still available in this chat.")
+        return
+
+    images = data.get("pending_channel_images", [])
+    link = data.get("pending_channel_link")
+    if not link:
+        await query.edit_message_text("❌ No pending link found. Please generate the link again.")
+        return
+    if not images:
+        await query.answer("Please send at least one photo first.", show_alert=True)
+        return
+    if not CHANNEL_ID:
+        await query.edit_message_text("❌ CHANNEL_ID is not configured in the environment.")
         return
 
     keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Open Video", url=link)]])
+    caption = "🎬 New Content\n\nClick the button below to access."
+    try:
+        if len(images) == 1:
+            await context.bot.send_photo(chat_id=CHANNEL_ID, photo=images[0], caption=caption, reply_markup=keyboard)
+        else:
+            media = [InputMediaPhoto(media=file_id, caption=caption if i == 0 else None)
+                     for i, file_id in enumerate(images[:10])]
+            await context.bot.send_media_group(chat_id=CHANNEL_ID, media=media)
+            # Telegram albums do not support inline keyboards, so put the link button in the next channel message.
+            await context.bot.send_message(chat_id=CHANNEL_ID, text="🔗 Access the content here:", reply_markup=keyboard)
 
-    await context.bot.send_photo(
-        chat_id=CHANNEL_ID,
-        photo=CHANNEL_IMAGE_FILE_ID,
-        caption="🎬 New Content\n\nClick the button below to access.",
-        reply_markup=keyboard,
-    )
+        for key in ("awaiting_channel_images", "pending_channel_link", "pending_channel_images"):
+            data.pop(key, None)
+        await query.edit_message_text(f"✅ Posted {min(len(images), 10)} image(s) to the channel with the generated link.")
+    except Exception as exc:
+        logging.exception("Failed to publish channel post")
+        await query.edit_message_text(f"❌ Failed to post to the channel: {exc}")
 
 
 async def is_user_joined(user_id, context):
@@ -329,7 +379,7 @@ async def generatebatch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     link = f"https://t.me/{context.bot.username}?start={token}"
     await update.message.reply_text(f"✅ Batch link generated:\n{link}")
-    await post_link_to_channel(context, link)
+    await post_link_to_channel(context, link, admin_id)
 
 @admin_only
 async def setchannels(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -933,6 +983,19 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ You are not authorized to use this bot.")
         return
 
+    if context.user_data.get("awaiting_channel_images"):
+        if update.message.photo:
+            images = context.user_data.setdefault("pending_channel_images", [])
+            if len(images) >= 10:
+                await update.message.reply_text("⚠️ You can add up to 10 images per channel post. Press Done — Publish to Channel to continue.")
+                return
+            images.append(update.message.photo[-1].file_id)
+            count = len(images)
+            await update.message.reply_text(f"✅ Image {count} added. Send more images or press Done — Publish to Channel.")
+        else:
+            await update.message.reply_text("🖼️ Please send a photo, or press Done — Publish to Channel when finished.")
+        return
+
     if context.user_data.get("awaiting_limit_message"):
         await redis.set("access:limit_message", update.message.text)
         context.user_data.pop("awaiting_limit_message", None)
@@ -1015,7 +1078,7 @@ async def handle_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     link = f"https://t.me/{context.bot.username}?start={token}"
     await update.message.reply_text(f"🔗 Link generated:\n{link}")
-    await post_link_to_channel(context, link)
+    await post_link_to_channel(context, link, admin_id)
 
 # --- Fallback ---
 async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1072,6 +1135,7 @@ if __name__ == '__main__':
 
 
     # Callback and message handlers
+    app.add_handler(CallbackQueryHandler(publish_channel_post, pattern=r"^(publish_channel_post|cancel_channel_post)$"))
     app.add_handler(CallbackQueryHandler(fullaccess_callback, pattern=r"^fullaccess$"))
     app.add_handler(CallbackQueryHandler(tryagain_callback, pattern=r"^tryagain\|"))
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, handle_input))
